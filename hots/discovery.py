@@ -7,6 +7,33 @@ import requests
 CRTSH_URL = "https://crt.sh/"
 
 
+def normalize_hostname(value: str, domain: str) -> str | None:
+    """
+    Normalize hostname candidates from crt.sh.
+
+    - trims whitespace
+    - lowercases values
+    - removes wildcard prefixes ("*.")
+    - strips trailing dot
+    - returns only names under the requested domain
+    """
+    name = (value or "").strip().lower().rstrip(".")
+    if not name:
+        return None
+
+    if name.startswith("*."):
+        name = name[2:]
+
+    root = domain.strip().lower().rstrip(".")
+    if not root:
+        return None
+
+    if name == root or name.endswith(f".{root}"):
+        return name
+
+    return None
+
+
 def fetch_subdomains_from_crtsh(domain: str, timeout: float = 8.0) -> List[str]:
     """
     Passive Scraper: ดึง subdomain จาก crt.sh โดยไม่ยิงตรงไปที่เว็บเป้าหมาย
@@ -27,9 +54,9 @@ def fetch_subdomains_from_crtsh(domain: str, timeout: float = 8.0) -> List[str]:
     for row in data:
         name_value = row.get("name_value") or ""
         for line in str(name_value).split("\n"):
-            line = line.strip().lower()
-            if line.endswith(domain.lower()):
-                results.add(line)
+            normalized = normalize_hostname(line, domain)
+            if normalized:
+                results.add(normalized)
 
     return sorted(results)
 
@@ -58,7 +85,8 @@ def brute_force_subdomains(
     if prefixes is None:
         prefixes = DEFAULT_PREFIXES
 
-    hosts = [f"{p.strip().lower()}.{domain.strip().lower()}" for p in prefixes if p]
+    clean_domain = domain.strip().lower().rstrip(".")
+    hosts = [f"{p.strip().lower()}.{clean_domain}" for p in prefixes if p]
     if shuffle:
         random.shuffle(hosts)
     return hosts
