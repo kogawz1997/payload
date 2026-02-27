@@ -7,6 +7,12 @@ import requests
 CRTSH_URL = "https://crt.sh/"
 
 
+def normalize_domain(domain: str) -> str | None:
+    """Normalize a root domain value used by discovery functions."""
+    root = (domain or "").strip().lower().rstrip(".")
+    return root or None
+
+
 def normalize_hostname(value: str, domain: str) -> str | None:
     """
     Normalize hostname candidates from crt.sh.
@@ -17,6 +23,10 @@ def normalize_hostname(value: str, domain: str) -> str | None:
     - strips trailing dot
     - returns only names under the requested domain
     """
+    root = normalize_domain(domain)
+    if not root:
+        return None
+
     name = (value or "").strip().lower().rstrip(".")
     if not name:
         return None
@@ -24,8 +34,8 @@ def normalize_hostname(value: str, domain: str) -> str | None:
     if name.startswith("*."):
         name = name[2:]
 
-    root = domain.strip().lower().rstrip(".")
-    if not root:
+    # malformed name guard: wildcard remnants / whitespace in host token
+    if "*" in name or any(ch.isspace() for ch in name):
         return None
 
     if name == root or name.endswith(f".{root}"):
@@ -38,7 +48,11 @@ def fetch_subdomains_from_crtsh(domain: str, timeout: float = 8.0) -> List[str]:
     """
     Passive Scraper: ดึง subdomain จาก crt.sh โดยไม่ยิงตรงไปที่เว็บเป้าหมาย
     """
-    params = {"q": f"%.{domain}", "output": "json"}
+    root = normalize_domain(domain)
+    if not root:
+        return []
+
+    params = {"q": f"%.{root}", "output": "json"}
     try:
         resp = requests.get(CRTSH_URL, params=params, timeout=timeout)
         resp.raise_for_status()
@@ -54,7 +68,7 @@ def fetch_subdomains_from_crtsh(domain: str, timeout: float = 8.0) -> List[str]:
     for row in data:
         name_value = row.get("name_value") or ""
         for line in str(name_value).split("\n"):
-            normalized = normalize_hostname(line, domain)
+            normalized = normalize_hostname(line, root)
             if normalized:
                 results.add(normalized)
 
@@ -82,11 +96,14 @@ def brute_force_subdomains(
     Active Brute-forcer: สร้างรายชื่อ subdomain จาก prefix list
     (ยังไม่ยิง request จริง แค่เตรียม host)
     """
+    clean_domain = normalize_domain(domain)
+    if not clean_domain:
+        return []
+
     if prefixes is None:
         prefixes = DEFAULT_PREFIXES
 
-    clean_domain = domain.strip().lower().rstrip(".")
-    hosts = [f"{p.strip().lower()}.{clean_domain}" for p in prefixes if p]
+    hosts = [f"{p.strip().lower()}.{clean_domain}" for p in prefixes if p and p.strip()]
     if shuffle:
         random.shuffle(hosts)
     return hosts
@@ -102,4 +119,3 @@ def build_host_queue(domain: str, use_passive: bool = True, use_bruteforce: bool
     if use_bruteforce:
         hosts.update(brute_force_subdomains(domain))
     return sorted(hosts)
-
