@@ -8,6 +8,7 @@ from discovery import build_host_queue
 from payloads import build_all_payloads_for_host
 from scanner import HostScanResult, scan_hosts_parallel
 from stealth import StealthConfig
+from validation import normalize_hosts, normalize_proxies
 
 
 class App(ctk.CTk):
@@ -178,12 +179,9 @@ class App(ctk.CTk):
             self._safe_log(f"พบ host ทั้งหมด {len(hosts)} ตัว เตรียมสแกน ...")
 
             proxies_raw = (self.proxy_entry.get() or "").strip()
-            proxies = []
-            if proxies_raw:
-                for part in proxies_raw.replace("\n", ",").split(","):
-                    v = part.strip()
-                    if v:
-                        proxies.append(v)
+            proxies, invalid_proxies = normalize_proxies(proxies_raw)
+            if invalid_proxies:
+                self._safe_log(f"ข้าม proxy format ไม่ถูกต้อง: {', '.join(invalid_proxies)}")
 
             timeout_val = float(self.timeout_slider.get())
             cfg = StealthConfig(timeout=timeout_val, proxies=proxies or None)
@@ -219,9 +217,12 @@ class App(ctk.CTk):
 
     def start_custom_scan_thread(self) -> None:
         text = self.custom_hosts_text.get("1.0", "end").strip()
-        hosts = [line.strip() for line in text.splitlines() if line.strip()]
+        hosts_raw = [line.strip() for line in text.splitlines() if line.strip()]
+        hosts, invalid_hosts = normalize_hosts(hosts_raw)
+        if invalid_hosts:
+            self.log(f"ข้าม host format ไม่ถูกต้อง: {', '.join(invalid_hosts)}")
         if not hosts:
-            self.log("กรุณาวางลิสต์ host ทีละบรรทัดก่อน")
+            self.log("กรุณาวางลิสต์ host ที่ถูกต้องอย่างน้อย 1 รายการ")
             return
 
         self.custom_scan_btn.configure(state="disabled")
@@ -237,12 +238,9 @@ class App(ctk.CTk):
             self._safe_log(f"เตรียมสแกน custom hosts {len(hosts)} ตัว ...")
 
             proxies_raw = (self.proxy_entry.get() or "").strip()
-            proxies = []
-            if proxies_raw:
-                for part in proxies_raw.replace("\n", ",").split(","):
-                    v = part.strip()
-                    if v:
-                        proxies.append(v)
+            proxies, invalid_proxies = normalize_proxies(proxies_raw)
+            if invalid_proxies:
+                self._safe_log(f"ข้าม proxy format ไม่ถูกต้อง: {', '.join(invalid_proxies)}")
 
             timeout_val = float(self.timeout_slider.get())
             cfg = StealthConfig(timeout=timeout_val, proxies=proxies or None)

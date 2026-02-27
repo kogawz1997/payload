@@ -1,4 +1,5 @@
 import random
+import threading
 import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
@@ -35,13 +36,15 @@ class ProxyRotator:
     def __init__(self, proxies: Iterable[str] | None):
         self._proxies = list(proxies or [])
         self._index = 0
+        self._lock = threading.Lock()
 
     def get_next(self) -> Optional[str]:
         if not self._proxies:
             return None
-        value = self._proxies[self._index % len(self._proxies)]
-        self._index += 1
-        return value
+        with self._lock:
+            value = self._proxies[self._index % len(self._proxies)]
+            self._index += 1
+            return value
 
 
 def random_user_agent() -> str:
