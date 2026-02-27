@@ -7,7 +7,9 @@ import customtkinter as ctk
 from discovery import build_host_queue
 from payloads import build_all_payloads_for_host
 from scanner import HostScanResult, scan_hosts_parallel
+from netcheck import run_basic_network_checks
 from stealth import StealthConfig
+from validation import normalize_hosts, normalize_proxies
 
 
 class App(ctk.CTk):
@@ -40,6 +42,9 @@ class App(ctk.CTk):
 
         self.start_btn = ctk.CTkButton(top, text="Scan Auto", command=self.start_scan_thread)
         self.start_btn.pack(side="left", padx=10)
+
+        self.net_test_btn = ctk.CTkButton(top, text="Quick Net Test", command=self.start_net_test_thread)
+        self.net_test_btn.pack(side="left", padx=5)
 
         # Options frame: proxy + timeout
         options = ctk.CTkFrame(self)
@@ -152,6 +157,32 @@ class App(ctk.CTk):
     def _on_timeout_change(self, value: float) -> None:
         self.timeout_value_label.configure(text=f"Timeout {value:.1f}s")
 
+
+    def start_net_test_thread(self) -> None:
+        self.net_test_btn.configure(state="disabled")
+        self.log("เริ่มทดสอบเน็ตของเครื่องนี้ (Quick Net Test) ...")
+        t = threading.Thread(target=self._net_test_flow, daemon=True)
+        t.start()
+
+    def _net_test_flow(self) -> None:
+        try:
+            timeout_val = float(self.timeout_slider.get())
+            results = run_basic_network_checks(timeout=timeout_val)
+            ok_count = 0
+            for r in results:
+                if r.ok:
+                    ok_count += 1
+                    self._safe_log(
+                        f"[NET] {r.name} -> ok ({r.status_code}) {r.latency_ms:.0f}ms"
+                    )
+                else:
+                    self._safe_log(
+                        f"[NET] {r.name} -> error ({r.error}) {r.latency_ms:.0f}ms"
+                    )
+            self._safe_log(f"[NET] สรุปผ่าน {ok_count}/{len(results)} ปลายทาง")
+        finally:
+            self.after(0, lambda: self.net_test_btn.configure(state="normal"))
+
     # --- Scan workflow ---------------------------------------------------
     def start_scan_thread(self) -> None:
         domain = (self.domain_entry.get() or "").strip()
@@ -178,12 +209,9 @@ class App(ctk.CTk):
             self._safe_log(f"พบ host ทั้งหมด {len(hosts)} ตัว เตรียมสแกน ...")
 
             proxies_raw = (self.proxy_entry.get() or "").strip()
-            proxies = []
-            if proxies_raw:
-                for part in proxies_raw.replace("\n", ",").split(","):
-                    v = part.strip()
-                    if v:
-                        proxies.append(v)
+            proxies, invalid_proxies = normalize_proxies(proxies_raw)
+            if invalid_proxies:
+                self._safe_log(f"ข้าม proxy format ไม่ถูกต้อง: {', '.join(invalid_proxies)}")
 
             timeout_val = float(self.timeout_slider.get())
             cfg = StealthConfig(timeout=timeout_val, proxies=proxies or None)
@@ -219,9 +247,12 @@ class App(ctk.CTk):
 
     def start_custom_scan_thread(self) -> None:
         text = self.custom_hosts_text.get("1.0", "end").strip()
-        hosts = [line.strip() for line in text.splitlines() if line.strip()]
+        hosts_raw = [line.strip() for line in text.splitlines() if line.strip()]
+        hosts, invalid_hosts = normalize_hosts(hosts_raw)
+        if invalid_hosts:
+            self.log(f"ข้าม host format ไม่ถูกต้อง: {', '.join(invalid_hosts)}")
         if not hosts:
-            self.log("กรุณาวางลิสต์ host ทีละบรรทัดก่อน")
+            self.log("กรุณาวางลิสต์ host ที่ถูกต้องอย่างน้อย 1 รายการ")
             return
 
         self.custom_scan_btn.configure(state="disabled")
@@ -237,12 +268,9 @@ class App(ctk.CTk):
             self._safe_log(f"เตรียมสแกน custom hosts {len(hosts)} ตัว ...")
 
             proxies_raw = (self.proxy_entry.get() or "").strip()
-            proxies = []
-            if proxies_raw:
-                for part in proxies_raw.replace("\n", ",").split(","):
-                    v = part.strip()
-                    if v:
-                        proxies.append(v)
+            proxies, invalid_proxies = normalize_proxies(proxies_raw)
+            if invalid_proxies:
+                self._safe_log(f"ข้าม proxy format ไม่ถูกต้อง: {', '.join(invalid_proxies)}")
 
             timeout_val = float(self.timeout_slider.get())
             cfg = StealthConfig(timeout=timeout_val, proxies=proxies or None)
